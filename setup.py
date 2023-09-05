@@ -26,5 +26,5 @@ setup(
     #     'Source': 'https://github.com/abdeladim-s/mbllama',
     #     'Tracker': 'https://github.com/abdeladim-s/mbllama/issues',
     # },
-    install_requires=["keras-core==0.1.5"],
+    install_requires=["keras-core==0.1.5", "sentencepiece"],
 )
