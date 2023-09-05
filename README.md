@@ -1,7 +1,7 @@
 # MB-LLaMA
 A simple Multi-Backend (Pytorch, Tensorflow, Jax) implementation of [LLaMA](https://github.com/facebookresearch/llama) using [keras-core](https://github.com/keras-team/keras-core).
 # Installation
-* Install your backend of choice 
+* Install your backend of choice  (Pytorch, Tensorflow or Jax)
 * Then install `mbllama`
 ```shell
 pip install git+https://github.com/abdeladim-s/mbllama
