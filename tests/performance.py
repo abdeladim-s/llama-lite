@@ -6,14 +6,13 @@ A simple script to compare the performance between the three backends
 """
 import subprocess
 
-
 ckpt = '../_models/stories15M.pt'
 prompt = "Once upon a time"
 max_new_tokens = 10
 top_k = 40
 seed = 1234
 backends = ['torch', 'tensorflow', 'jax']
-number_iteration = 1
+num_iterations = 1
 use_cpu = True
 
 
@@ -29,13 +28,20 @@ def test():
     model.generate("Once upon a time ", max_new_tokens=max_new_tokens, top_k=top_k, seed=seed)
 
 
-
-def run():
+def run(ckpt=ckpt,
+        prompt=prompt,
+        max_new_tokens=max_new_tokens,
+        top_k=top_k,
+        seed=seed,
+        backends=backends,
+        num_iterations=num_iterations,
+        use_cpu=use_cpu
+        ):
     if use_cpu:
         print("Using CPU ...")
     for backend in backends:
         print(f"Running {backend} backend in isolated subprocess ...")
-        stm = f"'test()', setup='from performance import test', number={number_iteration}"
+        stm = f"'test()', setup='from performance import test', number={num_iterations}"
         cmd = f'KERAS_BACKEND={backend} python3 -c "import timeit; print(timeit.timeit({stm}))"'
         res = subprocess.check_output([cmd], shell=True)
         time = float(str(res).split('\\n')[1])
