@@ -61,7 +61,7 @@ def precompute_freqs_cis(dim: int, max_seq_len: int, theta: float = 10_000.0, dt
 
     :param dim: Dimension of the freq tensor
     :param max_seq_len: max sequence length
-    :param theta: Base of the freqqs
+    :param theta: Base of the freqs
     :param dtype: type of the tensor
     :return: Tuple of (cos, sin) freqs
     """
@@ -76,10 +76,10 @@ def precompute_freqs_cis(dim: int, max_seq_len: int, theta: float = 10_000.0, dt
 
 def reshape_for_broadcast(freq: keras.KerasTensor, x: keras.KerasTensor) -> keras.KerasTensor:
     """
-     Helper function to rehspae the freq tensor
+     Helper function to reshape the freq tensor
 
     :param freq: frequency tensor
-    :param x: Tensor target
+    :param x: tensor target
     :return: the reshaped freq tensor
     """
     ndim = len(x.shape)
@@ -179,8 +179,8 @@ class Attention(keras.Model):
         # grouped multiquery attention
         xk = repeat_kv(xk, self.n_rep)  # (bs, seqlen, n_local_heads, head_dim)
         xv = repeat_kv(xv, self.n_rep)  # (bs, seqlen, n_local_heads, head_dim)
-        # 1,1024,8,64
-        # make heads into batch dim
+
+        # heads into batch dim
         xq = ops.transpose(xq, (0, 2, 1, 3))
         xk = ops.transpose(xk, (0, 2, 1, 3))
         xv = ops.transpose(xv, (0, 2, 1, 3))
@@ -392,7 +392,6 @@ class Transformer(keras.Model):
             idx_cond = tokens if tokens.shape[1] <= self.params.max_seq_len else tokens[:, -self.params.max_seq_len:]
             # forward
             logits = self.call(idx_cond, training=False)
-            # crop to final timestep
             logits = logits[:, -1, :]
             if temp == 0.:
                 _, idx_next = ops.top_k(logits, k=1)
@@ -402,7 +401,6 @@ class Transformer(keras.Model):
                 if top_k is not None:
                     v, _ = ops.top_k(logits, min(top_k, logits.shape[-1]))
                     logits = ops.where(logits < v[:, -1], -float("Inf"), logits)
-                    # logits[logits < v[:, [-1]]] = -float('inf')
                 idx_next = keras.random.categorical(logits=logits, num_samples=1, seed=seed)
             # append sampled idx to the running seq and continue
             tokens = ops.concatenate([tokens, idx_next], axis=1)
