@@ -9,7 +9,8 @@ A simple Multi-Backend (Pytorch, Tensorflow, Jax) implementation of [LLaMA](http
 * Install your backend of choice  (Pytorch, Tensorflow or Jax)
 * Then install `mbllama`
 ```shell
-pip install git+https://github.com/abdeladim-s/mbllama
+git clone https://github.com/abdeladim-s/mbllama && cd mbllama
+pip install -e .
 ```
 
 # Example usage
