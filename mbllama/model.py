@@ -378,7 +378,7 @@ class Transformer(keras.Model):
             self.embed_out.set_weights([ckpt['model']['output.weight'].T])
 
         else:
-            # keras/ tensorflow weights
+            # keras/tensorflow weights
             super().load_weights(filepath, skip_mismatch, **kwargs)
 
     def generate(self, prompt: str, max_new_tokens, temp=1.0, top_k=None, seed=None):
