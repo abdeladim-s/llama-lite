@@ -309,8 +309,6 @@ class Transformer(keras.Model):
 
         self.freqs_cos, self.freqs_sin = precompute_freqs_cis(params.dim // params.n_heads, params.max_seq_len)
 
-        # TODO: apply special scaled init to the residual projections, per GPT-2 paper
-
         # Initialize attribute for the loss of the last forward call. This will be set if the forward is called with a targets tensor.
         self.last_loss = None
 
