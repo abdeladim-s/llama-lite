@@ -9,7 +9,7 @@ long_description = (this_directory / "README.md").read_text(encoding='utf-8')
 
 
 setup(
-    name="mbllama",
+    name="llama_lite",
     version="0.0.1",
     author="Abdeladim S.",
     description="A multi-backend (Pytorch, Tensorflow, Jax) implementation of the `Large Language Model Meta AI` (aka LLaMA) using keras-core",

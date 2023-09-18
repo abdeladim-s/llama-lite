@@ -8,12 +8,13 @@ import subprocess
 
 ckpt = '../_models/stories15M.pt'
 prompt = "Once upon a time"
-max_new_tokens = 10
+max_new_tokens = 50
 top_k = 40
 seed = 1234
 backends = ['torch', 'tensorflow', 'jax']
 num_iterations = 1
-use_cpu = True
+jit_generate = True
+use_cpu = False
 
 
 def test():
@@ -23,8 +24,8 @@ def test():
         # Force cpu
         os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
 
-    from mbllama.model import get_model_from_ckpt
-    model = get_model_from_ckpt(ckpt)
+    from llama_lite.model import get_model_from_ckpt
+    model = get_model_from_ckpt(ckpt, jit_generate=jit_generate)
     model.generate("Once upon a time ", max_new_tokens=max_new_tokens, top_k=top_k, seed=seed)
 
 
@@ -50,3 +51,4 @@ def run(ckpt=ckpt,
 
 if __name__ == '__main__':
     run()
+    # test()

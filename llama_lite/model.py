@@ -36,7 +36,7 @@ import keras_core.ops as ops
 from dataclasses import dataclass
 from typing import Optional, Tuple
 
-from mbllama.tokenizer import Tokenizer
+from llama_lite.tokenizer import Tokenizer
 
 
 @dataclass
@@ -166,8 +166,10 @@ class Attention(keras.Model):
         self.wo.build(input_shape)
         self.built = True
 
-    def call(self, x, freqs_cos, freqs_sin, training=False, **kwargs):
+    def call(self, x, freqs_cos, freqs_sin, batch_size=1, training=False, **kwargs):
         bsz, seqlen, _ = x.shape
+        if bsz is None:
+            bsz = batch_size
         # QKV
         xq, xk, xv = self.wq(x), self.wk(x), self.wv(x)
         xq = ops.reshape(xq, new_shape=(bsz, seqlen, self.n_local_heads, self.head_dim))
@@ -237,11 +239,12 @@ class RMSNorm(keras.layers.Layer):
     """
     RMS norm layer
     """
-
     def __init__(self, dim: int, eps: float, **kwargs):
         super().__init__(**kwargs)
         self.dim = dim
         self.eps = eps
+
+    def build(self, input_shape):
         self.weight = self.add_weight(
             shape=(self.dim,),
             initializer=keras.initializers.Ones(),
@@ -250,7 +253,6 @@ class RMSNorm(keras.layers.Layer):
             name='rmsnorm_weight'
         )
 
-    def build(self, input_shape):
         super().build(input_shape)
 
     def _norm(self, x):
@@ -285,16 +287,16 @@ class TransformerBlock(keras.Model):
         self.ffn_norm.build(input_shape)
         self.built = True
 
-    def call(self, x, freqs_cos, freqs_sin, training=False, **kwargs):
-        h = x + self.attention(self.attention_norm(x), freqs_cos, freqs_sin)
+    def call(self, x, freqs_cos, freqs_sin, batch_size=1, training=False, **kwargs):
+        h = x + self.attention(self.attention_norm(x), freqs_cos, freqs_sin, batch_size=batch_size)
         out = h + self.feed_forward(self.ffn_norm(h))
         return out
 
 
-class Transformer(keras.Model):
+class LLaMATransformer(keras.Model):
     """LLaMA transformer Model """
 
-    def __init__(self, params: ModelArgs, tokenizer_model: str = None, **kwargs):
+    def __init__(self, params: ModelArgs, tokenizer_model: str = None, jit_generate=False, **kwargs):
         super().__init__(**kwargs)
         self.params = params
         self.vocab_size = params.vocab_size
@@ -317,6 +319,9 @@ class Transformer(keras.Model):
         else:
             self.tokenizer = Tokenizer(str(Path(__file__).parent.resolve() / "tokenizer.model"))
 
+        self.jit_generate = jit_generate
+        # workaround
+        self.batch_size = 1
     def build(self, input_shape):
         self.tok_embeddings.build(input_shape)
         embeddings_output_shape = self.tok_embeddings.compute_output_shape(input_shape)
@@ -326,15 +331,24 @@ class Transformer(keras.Model):
         self.embed_out.build(embeddings_output_shape)
         self.built = True
 
-    def call(self, tokens: keras.KerasTensor, targets: keras.KerasTensor = None, training=False):
-        _bsz, seqlen = tokens.shape
+    def call(self, tokens: keras.KerasTensor, targets: keras.KerasTensor = None, batch_size=1, training=False):
+        if not self.jit_generate:
+            _bsz, seqlen = tokens.shape
+        else:
+            _bsz, seqlen = tokens.shape
+            if _bsz is None:
+                _bsz = self.batch_size
+            # I found that For the generate function to be tensorflow/jax jit compatible, the seqlen should always be fixed!
+            # we will fix it to max_seq_len
+            assert seqlen == self.params.max_seq_len
+
         h = self.tok_embeddings(tokens)
         h = self.dropout(h)
         freqs_cos = self.freqs_cos[:seqlen]
         freqs_sin = self.freqs_sin[:seqlen]
 
         for layer in self.t_layers:
-            h = layer(h, freqs_cos, freqs_sin)
+            h = layer(h, freqs_cos, freqs_sin, batch_size=_bsz)
 
         h = self.norm(h)
 
@@ -345,7 +359,10 @@ class Transformer(keras.Model):
                                                           ops.reshape(targets, new_shape=(-1)), from_logits=True)
         else:
             # inference-time mini-optimization: only forward the output on the very last position
-            logits = self.embed_out(h[None, :, -1, :])
+            if not self.jit_generate:
+                logits = self.embed_out(h[None, :, -1, :])
+            else:
+                logits = self.embed_out(h)
             self.last_loss = None
 
         return logits
@@ -381,34 +398,136 @@ class Transformer(keras.Model):
             # keras/tensorflow weights
             super().load_weights(filepath, skip_mismatch, **kwargs)
 
-    def generate(self, prompt: str, max_new_tokens, temp=1.0, top_k=None, seed=None):
+    def _sample_next_token(self, current_logits, temp, top_k, seed):
+        # jax does not work this way the simple way!!
+
+        if keras.backend.backend() != 'jax':
+            if temp == 0.:
+                _, next_token = ops.top_k(current_logits, k=1)
+            else:
+                # scale by temp
+                current_logits = current_logits / temp
+                if top_k is not None:
+                    v, _ = ops.top_k(current_logits, k=top_k)
+                    current_logits = ops.where(current_logits < v[:, -1], -float("Inf"), current_logits)
+
+                next_token = keras.random.categorical(logits=current_logits, num_samples=1, dtype='int32')
+
+            return ops.cast(next_token, dtype='int32')
+        else:
+            # jax again!!
+            def if_true():
+                return ops.top_k(current_logits, k=1)[1]
+
+            def if_false():
+                nlogits = current_logits / temp
+                if top_k is not None:
+                    v, _ = ops.top_k(nlogits, min(top_k, nlogits.shape[-1]))
+                    nlogits = ops.where(nlogits < v[:, -1], -float("Inf"), nlogits)
+                    # pass
+
+                # no random keys in this world again!!
+                # keras_core api throw error with jax/tracer seed generator
+                # Couldn't find a way to make it random without breaking the XLA
+                import jax
+                key = jax.random.PRNGKey(0)
+                output_shape = list(nlogits.shape)
+                output_shape[1] = 1
+                output_shape = tuple(output_shape)
+                output = jax.random.categorical(
+                    key=key, logits=nlogits[..., None], shape=output_shape, axis=1
+                )
+                return output.astype('int32')
+
+            return ops.cond(temp == 0, if_true, if_false)
+    def _get_generate(self):
+        def _eager_generate(tokens, max_new_tokens, temp=0.0, top_k=None, seed=None):
+            for _ in range(max_new_tokens):
+                # crop if too long
+                idx_cond = tokens if tokens.shape[1] <= self.params.max_seq_len else tokens[:, -self.params.max_seq_len:]
+                # forward
+                logits = self.call(idx_cond, training=False)
+                logits = logits[:, -1, :]
+                if temp == 0.:
+                    _, next_token = ops.top_k(logits, k=1)
+                else:
+                    # scale by temp
+                    logits = logits / temp
+                    if top_k is not None:
+                        v, _ = ops.top_k(logits, min(top_k, logits.shape[-1]))
+                        logits = ops.where(logits < v[:, -1], -float("Inf"), logits)
+                    next_token = keras.random.categorical(logits=logits, num_samples=1, seed=seed)
+                # append sampled idx to the running seq and continue
+                tokens = ops.concatenate([tokens, next_token], axis=1)
+
+            return tokens
+
+        def _jit_able_generate(tokens, max_new_tokens, temp=0.0, top_k=None, seed=None, start_at_token=None):
+            """
+            A helper function to be able to jit the generate function, in the hope of gaining a performance boost
+
+            :param tokens:
+            :param max_new_tokens:
+            :param temp:
+            :param top_k:
+            :param seed:
+            :return:
+            """
+            bsz, seq_len = tokens.shape
+            if start_at_token is not None:
+                seq_len = start_at_token
+                output = tokens
+            else:
+                # pad tokens to max_seq_len
+                output = ops.zeros((1, self.params.max_seq_len - seq_len), dtype='int32')
+                output = ops.concatenate([tokens, output], axis=-1)
+
+            def loop(i, output):
+                logits = self.call(output, training=False)
+                # get current token logits
+                current = seq_len + i - 1
+                logits = logits[:, current, :]
+                next_token = self._sample_next_token(logits, temp, top_k, seed)
+                # update output, here as well!!!
+                if keras.backend.backend() != 'jax':
+                    output = ops.scatter_update(output, indices=[[0, seq_len + i]], updates=next_token[0])
+                else:
+                    output = output.at[0, seq_len + i].set(next_token[0][0])
+                return output
+
+            # run fori
+            output = ops.fori_loop(0, max_new_tokens, loop, output)
+            return output[:, :max_new_tokens]
+
+        if self.jit_generate:
+            return _jit_able_generate
+        else:
+            return _eager_generate
+    def generate(self, prompt: str, max_new_tokens, temp=0.0, top_k=None, seed=None):
+
         tokens = self.tokenizer.encode(prompt, bos=True, eos=False)
         tokens = ops.convert_to_tensor(tokens, dtype='int32')
         tokens = ops.expand_dims(tokens, axis=0)  # add batch dim
-        for _ in range(max_new_tokens):
-            # crop if too long
-            idx_cond = tokens if tokens.shape[1] <= self.params.max_seq_len else tokens[:, -self.params.max_seq_len:]
-            # forward
-            logits = self.call(idx_cond, training=False)
-            logits = logits[:, -1, :]
-            if temp == 0.:
-                _, idx_next = ops.top_k(logits, k=1)
-            else:
-                # scale by temp
-                logits = logits / temp
-                if top_k is not None:
-                    v, _ = ops.top_k(logits, min(top_k, logits.shape[-1]))
-                    logits = ops.where(logits < v[:, -1], -float("Inf"), logits)
-                idx_next = keras.random.categorical(logits=logits, num_samples=1, seed=seed)
-            # append sampled idx to the running seq and continue
-            tokens = ops.concatenate([tokens, idx_next], axis=1)
 
-        res = self.tokenizer.decode(ops.convert_to_numpy(tokens).tolist())
+        _fnc = self._get_generate()
+        if self.jit_generate:
+            # print(f"JIT generate: {self.jit_generate}")
+            # torch is very fast even without jit
 
+            if keras.backend.backend() == 'tensorflow':
+                import tensorflow as tf
+                _fnc = tf.function(_fnc)
+
+            elif keras.backend.backend() == 'jax':
+                import jax
+                _fnc = jax.jit(_fnc, static_argnames=['max_new_tokens', 'top_k'])
+
+        res = _fnc(tokens, max_new_tokens, temp, top_k, seed)
+        res = self.tokenizer.decode(ops.convert_to_numpy(res).tolist())
         return res[0]
 
 
-def get_model_from_ckpt(filepath: str, tokenizer_model: str = None) -> Transformer:
+def get_model_from_ckpt(filepath: str, tokenizer_model: str = None, jit_generate=True) -> LLaMATransformer:
     """
      Build a keras model from llama2.c Pytorch checkpoint
 
@@ -419,15 +538,18 @@ def get_model_from_ckpt(filepath: str, tokenizer_model: str = None) -> Transform
     import torch
     ckpt = torch.load(filepath)
     args = ModelArgs(**ckpt['model_args'])
-    model = Transformer(args, tokenizer_model=tokenizer_model)
-    model.build((None, None))
+    model = LLaMATransformer(args, tokenizer_model=tokenizer_model, jit_generate=jit_generate)
+    if jit_generate:
+        model.build((1, args.max_seq_len))
+    else:
+        model.build((None, None))
     model.load_weights(filepath)
     return model
 
 
 if __name__ == '__main__':
     ckpt = '../_models/stories15M.pt'
-    model = get_model_from_ckpt(ckpt)
+    model = get_model_from_ckpt(ckpt, jit_generate=True)
     model.summary()
-    res = model.generate("Once upon a time ", max_new_tokens=50, top_k=40, seed=1234)
+    res = model.generate("Once upon a time ", max_new_tokens=10, temp=0.8, top_k=15, seed=1234)
     print(res)

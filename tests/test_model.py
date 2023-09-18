@@ -12,7 +12,7 @@ os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
 class TestModelLoad(TestCase):
 
     def _test_load(self):
-        from mbllama.model import get_model_from_ckpt
+        from llama_lite.model import get_model_from_ckpt
         ckpt = '../_models/stories15M.pt'
         model = get_model_from_ckpt(ckpt)
         self.assertIsNotNone(model)
@@ -33,7 +33,7 @@ class TestModelLoad(TestCase):
 class TestGenerate(TestCase):
 
     def _test_generate(self):
-        from mbllama.model import get_model_from_ckpt
+        from llama_lite.model import get_model_from_ckpt
         ckpt = '../_models/stories15M.pt'
         model = get_model_from_ckpt(ckpt)
         res = model.generate("Once upon a time,", max_new_tokens=50, temp=0.8, top_k=40, seed=1234)

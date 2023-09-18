@@ -1,5 +1,5 @@
-# MB-LLaMA
-A simple Multi-Backend (Pytorch, Tensorflow, Jax) implementation of [LLaMA](https://github.com/facebookresearch/llama) using [keras-core](https://github.com/keras-team/keras-core).
+# LLaMA-Lite
+A Multi-Backend (Pytorch, Tensorflow, Jax) implementation of [LLaMA](https://github.com/facebookresearch/llama) using [keras-core](https://github.com/keras-team/keras-core).
 
 <a target="_blank" href="https://colab.research.google.com/github/abdeladim-s/mbllama/blob/main/notebook.ipynb">
   <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/>
@@ -7,24 +7,24 @@ A simple Multi-Backend (Pytorch, Tensorflow, Jax) implementation of [LLaMA](http
 
 # Installation
 * Install your backend of choice  (Pytorch, Tensorflow or Jax)
-* Then install `mbllama`
+* Then install `llama_lite`
 ```shell
-git clone https://github.com/abdeladim-s/mbllama && cd mbllama
+git clone https://github.com/abdeladim-s/llama-lite && cd llama-lite
 pip install -e .
 ```
 
-# Example usage
+# Inference usage
 
 * Get the `tinyllama` model weights from [HF](https://huggingface.co/karpathy/tinyllamas/tree/main).
 
 ```python
-import os 
+import os
 
 os.environ["KERAS_BACKEND"] = "torch"
 # os.environ["KERAS_BACKEND"] = "tensorflow"
 # os.environ["KERAS_BACKEND"] = "jax"
 
-from mbllama.model import get_model_from_ckpt
+from llama_lite.model import get_model_from_ckpt
 
 model = get_model_from_ckpt('stories15M.pt')
 
