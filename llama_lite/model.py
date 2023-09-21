@@ -322,6 +322,7 @@ class LLaMATransformer(keras.Model):
         self.jit_generate = jit_generate
         # workaround
         self.batch_size = 1
+
     def build(self, input_shape):
         self.tok_embeddings.build(input_shape)
         embeddings_output_shape = self.tok_embeddings.compute_output_shape(input_shape)
@@ -338,8 +339,8 @@ class LLaMATransformer(keras.Model):
             _bsz, seqlen = tokens.shape
             if _bsz is None:
                 _bsz = self.batch_size
-            # I found that For the generate function to be tensorflow/jax jit compatible, the seqlen should always be fixed!
-            # we will fix it to max_seq_len
+            # I found that, for the generate function to be tensorflow/jax jit compatible, the seqlen should always be fixed!
+            # set it it to max_seq_len
             assert seqlen == self.params.max_seq_len
 
         h = self.tok_embeddings(tokens)
