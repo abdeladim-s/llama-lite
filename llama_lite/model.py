@@ -400,8 +400,6 @@ class LLaMATransformer(keras.Model):
             super().load_weights(filepath, skip_mismatch, **kwargs)
 
     def _sample_next_token(self, current_logits, temp, top_k, seed):
-        # jax does not work this way the simple way!!
-
         if keras.backend.backend() != 'jax':
             if temp == 0.:
                 _, next_token = ops.top_k(current_logits, k=1)
