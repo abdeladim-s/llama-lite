@@ -340,7 +340,7 @@ class LLaMATransformer(keras.Model):
             if _bsz is None:
                 _bsz = self.batch_size
             # I found that, for the generate function to be tensorflow/jax jit compatible, the seqlen should always be fixed!
-            # set it it to max_seq_len
+            # set it to max_seq_len
             assert seqlen == self.params.max_seq_len
 
         h = self.tok_embeddings(tokens)
